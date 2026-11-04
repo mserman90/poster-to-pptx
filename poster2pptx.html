@@ -1,0 +1,1638 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Poster2PPTX — Afişten Düzenlenebilir PowerPoint (.pptx) Dönüştürücü</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- PptxGenJS (Local fallback with CDN) -->
+  <script src="lib/pptxgen.bundle.js"></script>
+  <script>
+    if (typeof PptxGenJS === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"><\/script>');
+    }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background-color: #090d16;
+      color: #f1f5f9;
+      user-select: none;
+    }
+
+    /* Custom scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* Canvas workspace */
+    .viewport-bg {
+      background: radial-gradient(circle at center, #131c31 0%, #090d16 100%);
+    }
+
+    .canvas-container {
+      position: relative;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      overflow: hidden;
+      background: repeating-conic-gradient(#1e293b 0% 25%, #0f172a 0% 50%) 50% / 20px 20px;
+    }
+
+    /* Interactive element on canvas */
+    .canvas-element {
+      position: absolute;
+      cursor: move;
+      box-sizing: border-box;
+      touch-action: none;
+    }
+
+    .canvas-element.selected {
+      outline: 2px solid #3b82f6;
+      outline-offset: -1px;
+      box-shadow: 0 0 0 1px #ffffff, 0 8px 24px rgba(59, 130, 246, 0.35);
+      z-index: 50;
+    }
+
+    .canvas-element:hover:not(.selected) {
+      outline: 1.5px dashed rgba(96, 165, 250, 0.8);
+    }
+
+    /* Element Labels */
+    .element-badge {
+      position: absolute;
+      top: -22px;
+      left: -1px;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 600;
+      border-radius: 4px 4px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      pointer-events: none;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    /* Resize Handles */
+    .handle {
+      position: absolute;
+      width: 9px;
+      height: 9px;
+      background-color: #ffffff;
+      border: 1.5px solid #2563eb;
+      border-radius: 2px;
+      z-index: 60;
+    }
+    .handle.nw { top: -5px; left: -5px; cursor: nwse-resize; }
+    .handle.ne { top: -5px; right: -5px; cursor: nesw-resize; }
+    .handle.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+    .handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+    .handle.n  { top: -5px; left: calc(50% - 4.5px); cursor: ns-resize; }
+    .handle.s  { bottom: -5px; left: calc(50% - 4.5px); cursor: ns-resize; }
+    .handle.w  { left: -5px; top: calc(50% - 4.5px); cursor: ew-resize; }
+    .handle.e  { right: -5px; top: calc(50% - 4.5px); cursor: ew-resize; }
+
+    /* Selection marquee */
+    .marquee {
+      position: absolute;
+      border: 1.5px dashed #38bdf8;
+      background-color: rgba(56, 189, 248, 0.15);
+      pointer-events: none;
+      z-index: 90;
+    }
+
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-slate-900/95 border-b border-slate-800 px-5 py-2.5 flex items-center justify-between shrink-0 z-40">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 via-orange-600 to-red-600 flex items-center justify-center shadow-lg shadow-orange-500/25 font-black text-lg text-white">
+        P
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="font-extrabold text-base tracking-tight text-white">Poster2PPTX</span>
+          <span class="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">Sunucusuz • %100 İstemci Taraflı</span>
+        </div>
+        <p class="text-[11px] text-slate-400 leading-none">Afişleri düzenlenebilir metin, maske ve logo katmanlarıyla PowerPoint slaytına dönüştürür</p>
+      </div>
+    </div>
+
+    <!-- Quick action buttons -->
+    <div class="flex items-center gap-2.5">
+      <button id="btnLoadSample" class="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition-all flex items-center gap-1.5 shadow-sm">
+        <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+        COP31 Afişiyle Dene
+      </button>
+
+      <label class="px-3.5 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-blue-500/20">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+        📂 Afiş Yükle
+        <input type="file" id="fileInput" accept="image/png, image/jpeg, image/webp" class="hidden">
+      </label>
+
+      <div class="h-6 w-px bg-slate-800 mx-1"></div>
+
+      <button id="btnExportPptx" disabled class="px-4 py-1.5 text-xs font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg shadow-lg shadow-orange-950/40 transition-all flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+        ⬇ PPTX İndir
+      </button>
+    </div>
+  </header>
+
+  <!-- Empty State (When no image is loaded) -->
+  <div id="emptyView" class="flex-1 flex flex-col items-center justify-center p-6 viewport-bg">
+    <div id="dropZone" class="max-w-xl w-full border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-2xl p-10 flex flex-col items-center text-center cursor-pointer transition-all bg-slate-900/40 hover:bg-slate-900/80 group">
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600/20 to-cyan-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center mb-4 group-hover:scale-105 transition-all">
+        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+      </div>
+      <h2 class="text-xl font-bold text-white mb-2">Afiş Görselini Buraya Bırakın veya Seçin</h2>
+      <p class="text-xs text-slate-400 max-w-md mb-6 leading-relaxed">
+        Görsel hiçbir sunucuya yüklenmez, %100 tarayıcınızın içinde güvenle işlenir. Afiş üzerine düzenlenebilir metinler, maske şekilleri ve kırpılabilir logolar ekleyip tek tıkla PowerPoint'e aktarabilirsiniz.
+      </p>
+
+      <div class="flex items-center gap-3">
+        <button type="button" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-blue-500/25 transition-all flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+          Dosya Seçin
+        </button>
+        <button type="button" id="btnDropzoneSample" class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition-all flex items-center gap-2">
+          COP31 Örnek Afişiyle Başla
+        </button>
+      </div>
+
+      <!-- Feature cards -->
+      <div class="grid grid-cols-4 gap-3 mt-8 pt-6 border-t border-slate-800/80 w-full text-left">
+        <div class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80">
+          <div class="text-blue-400 font-bold text-[11px] mb-1">📂 Afiş Yükle</div>
+          <div class="text-[10px] text-slate-400">JPG/PNG afişi seçin, doğrudan slayt zeminine yerleşsin.</div>
+        </div>
+        <div class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80">
+          <div class="text-amber-400 font-bold text-[11px] mb-1">▭ Maske Ekle</div>
+          <div class="text-[10px] text-slate-400">Gömülü yazıları kapatmak için düz veya gradyan şekiller.</div>
+        </div>
+        <div class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80">
+          <div class="text-emerald-400 font-bold text-[11px] mb-1">🔤 Metin Kutusu</div>
+          <div class="text-[10px] text-slate-400">PowerPoint'te düzenlenebilir gerçek metin kutuları.</div>
+        </div>
+        <div class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80">
+          <div class="text-purple-400 font-bold text-[11px] mb-1">✂️ Logo Kırp</div>
+          <div class="text-[10px] text-slate-400">Resimden logo/ikon kırparak bağımsız nesne yapın.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Workspace (Visible when image is loaded) -->
+  <div id="mainWorkspace" class="hidden flex-1 grid grid-cols-12 gap-0 overflow-hidden">
+    
+    <!-- Left: Canvas Area & Toolbar (8 columns) -->
+    <div class="col-span-8 flex flex-col border-r border-slate-800 bg-slate-950">
+      
+      <!-- Action Toolbar -->
+      <div class="px-5 py-2 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between shrink-0">
+        
+        <!-- Element Creation Tools -->
+        <div class="flex items-center gap-1.5">
+          <button id="toolSelect" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-600 text-white transition-all flex items-center gap-1.5 shadow-sm" title="Seç ve Taşı">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"></path></svg>
+            Seçim
+          </button>
+
+          <button id="btnAddText" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5" title="Yeni Metin Kutusu Ekle">
+            <span class="text-emerald-400">🔤</span>
+            Metin Kutusu Ekle
+          </button>
+
+          <button id="btnAddSolidMask" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5" title="Düz Renkli Maske Şekli Ekle">
+            <span class="text-amber-400">▭</span>
+            Düz Renk Maske
+          </button>
+
+          <button id="btnAddGradientMask" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5" title="Gradyan Renkli Maske Ekle">
+            <span class="text-orange-400">🌈</span>
+            Gradyan Maske
+          </button>
+
+          <button id="toolCrop" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5" title="Afiş üzerinden sürükleyerek logo veya ikon kırp">
+            <span class="text-purple-400">✂️</span>
+            Görselden Kırp
+          </button>
+        </div>
+
+        <!-- Zoom / View controls -->
+        <div class="flex items-center gap-3">
+          <!-- Eye Dropper Color Picker from Canvas -->
+          <button id="btnEyeDropper" class="px-2.5 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg transition-all flex items-center gap-1" title="Afişten Renk Al (Damlalık)">
+            <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+            Renk Damlalığı
+          </button>
+
+          <div class="flex items-center gap-1 text-xs text-slate-400 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-800">
+            <button id="btnZoomOut" class="hover:text-white px-1">－</button>
+            <span id="zoomLevelText" class="font-mono text-[11px] w-9 text-center">100%</span>
+            <button id="btnZoomIn" class="hover:text-white px-1">＋</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Canvas Scroll & Viewport Area -->
+      <div id="viewport" class="flex-1 overflow-auto p-8 flex items-center justify-center viewport-bg relative select-none">
+        <div id="canvasContainer" class="canvas-container relative transition-transform origin-center">
+          <!-- Background image layer -->
+          <img id="posterImage" class="block max-w-none pointer-events-none" alt="Afiş Görseli">
+          
+          <!-- Interactive DOM Elements Layer (Text, Masks, Crops) -->
+          <div id="elementsLayer" class="absolute inset-0 pointer-events-auto"></div>
+
+          <!-- Active Selection Marquee (for cropping) -->
+          <div id="marquee" class="marquee hidden"></div>
+        </div>
+      </div>
+
+      <!-- Canvas Footer Info -->
+      <div class="px-5 py-2 bg-slate-900/70 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-4">
+          <span id="infoDimensions">Afiş Boyutu: 0 × 0 px</span>
+          <span id="infoAspect">Slayt: 9.0" × Dikey Oran</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-[10px] font-mono text-slate-300">Del</kbd>
+          <span>Seçiliyi Sil</span>
+          <span class="mx-1">•</span>
+          <kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-[10px] font-mono text-slate-300">Yön Tuşları</kbd>
+          <span>Hassas Kaydır</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right: Properties Inspector & Layer List (4 columns) -->
+    <div class="col-span-4 flex flex-col bg-slate-900/95 overflow-y-auto border-l border-slate-800">
+      
+      <!-- Inspector Header -->
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+        <h2 class="font-bold text-sm text-white flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+          Öğe Özellikleri
+        </h2>
+        <button id="btnDeleteElement" class="text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 px-2 py-1 rounded transition-all flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+          Sil
+        </button>
+      </div>
+
+      <!-- Inspector Body (Dynamic based on selected element) -->
+      <div id="inspectorBody" class="p-4 border-b border-slate-800 bg-slate-950/40 space-y-3.5">
+        
+        <!-- [1] Text Properties Form -->
+        <div id="formText" class="space-y-3 hidden">
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-1">Metin İçeriği (PowerPoint'te Düzenlenebilir)</label>
+            <textarea id="propTextContent" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-sans leading-relaxed"></textarea>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Yazı Boyutu (pt)</label>
+              <input type="number" id="propTextFontSize" min="6" max="144" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono">
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Yazı Tipi</label>
+              <select id="propTextFontFamily" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500">
+                <option value="Calibri">Calibri</option>
+                <option value="Segoe UI">Segoe UI</option>
+                <option value="Arial">Arial</option>
+                <option value="Montserrat">Montserrat</option>
+                <option value="Helvetica">Helvetica</option>
+                <option value="Times New Roman">Times New Roman</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Yazı Rengi</label>
+              <div class="flex items-center gap-2">
+                <input type="color" id="propTextColorPicker" class="w-8 h-8 rounded border border-slate-700 bg-transparent cursor-pointer p-0">
+                <input type="text" id="propTextColorHex" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white uppercase font-mono">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Stil & Hizalama</label>
+              <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-700">
+                <button id="btnAlignLeft" class="flex-1 py-1 text-xs rounded hover:bg-slate-800 text-slate-300">Sol</button>
+                <button id="btnAlignCenter" class="flex-1 py-1 text-xs rounded hover:bg-slate-800 text-slate-300">Orta</button>
+                <button id="btnAlignRight" class="flex-1 py-1 text-xs rounded hover:bg-slate-800 text-slate-300">Sağ</button>
+                <button id="btnBold" class="px-2 py-1 text-xs font-bold rounded hover:bg-slate-800 text-white">B</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- [2] Solid Mask Properties Form -->
+        <div id="formSolidMask" class="space-y-3 hidden">
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-1">Maske Dolgu Rengi (PowerPoint Şekil Rengi)</label>
+            <div class="flex items-center gap-2">
+              <input type="color" id="propSolidColorPicker" class="w-8 h-8 rounded border border-slate-700 bg-transparent cursor-pointer p-0">
+              <input type="text" id="propSolidColorHex" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white uppercase font-mono">
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+              <span>Opaklık (Saydamlık)</span>
+              <span id="propSolidOpacityVal" class="font-mono text-white">100%</span>
+            </div>
+            <input type="range" id="propSolidOpacity" min="0" max="100" value="100" class="w-full accent-blue-500">
+          </div>
+          <p class="text-[10px] text-slate-400">Bu maske PowerPoint'te <b>gerçek şekil (Shape)</b> olarak oluşturulur; dolgu rengi sunum içinde dilediğiniz gibi değiştirilebilir.</p>
+        </div>
+
+        <!-- [3] Gradient Mask Properties Form -->
+        <div id="formGradientMask" class="space-y-3 hidden">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Başlangıç Rengi</label>
+              <div class="flex items-center gap-1.5">
+                <input type="color" id="propGradStartPicker" class="w-7 h-7 rounded border border-slate-700 bg-transparent cursor-pointer p-0">
+                <input type="text" id="propGradStartHex" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-1.5 py-1 text-xs text-white uppercase font-mono">
+              </div>
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Bitiş Rengi</label>
+              <div class="flex items-center gap-1.5">
+                <input type="color" id="propGradEndPicker" class="w-7 h-7 rounded border border-slate-700 bg-transparent cursor-pointer p-0">
+                <input type="text" id="propGradEndHex" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-1.5 py-1 text-xs text-white uppercase font-mono">
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Gradyan Açısı</label>
+              <select id="propGradAngle" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white">
+                <option value="180">Yukarıdan Aşağıya (180°)</option>
+                <option value="0">Aşağıdan Yukarıya (0°)</option>
+                <option value="90">Soldan Sağa (90°)</option>
+                <option value="270">Sağdan Sola (270°)</option>
+                <option value="135">Çapraz (135°)</option>
+              </select>
+            </div>
+            <div>
+              <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                <span>Opaklık</span>
+                <span id="propGradOpacityVal" class="font-mono text-white">100%</span>
+              </div>
+              <input type="range" id="propGradOpacity" min="0" max="100" value="100" class="w-full accent-blue-500 mt-2">
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-400">Gradyan maskeler görsel olarak PowerPoint'e eklenir, arka plandaki geçişli alanları kusursuz kapatır.</p>
+        </div>
+
+        <!-- [4] Image Crop Properties Form -->
+        <div id="formImageCrop" class="space-y-3 hidden">
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-1">Öğe Adı (Logo / İkon)</label>
+            <input type="text" id="propCropName" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500">
+          </div>
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-1">Kırpılmış Görsel Önizlemesi</label>
+            <div class="w-full h-24 bg-slate-900 rounded-lg border border-slate-700 flex items-center justify-center p-2 overflow-hidden">
+              <img id="propCropImgPreview" class="max-h-full max-w-full object-contain" alt="Kırpılmış Görsel">
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-400">Bu öğe PowerPoint slaytında ayrı, taşınabilir ve boyutlandırılabilir yüksek çözünürlüklü bir resim nesnesi olarak yer alır.</p>
+        </div>
+
+        <!-- Position & Size Inputs (Applies to all) -->
+        <div class="pt-2 border-t border-slate-800">
+          <label class="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Hassas Konum ve Boyut (Yüzde %)</label>
+          <div class="grid grid-cols-4 gap-1.5 font-mono text-xs">
+            <div>
+              <span class="text-[10px] text-slate-500 block mb-0.5">X (%)</span>
+              <input type="number" id="propX" step="0.1" min="0" max="100" class="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-white">
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-500 block mb-0.5">Y (%)</span>
+              <input type="number" id="propY" step="0.1" min="0" max="100" class="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-white">
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-500 block mb-0.5">W (%)</span>
+              <input type="number" id="propW" step="0.1" min="1" max="100" class="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-white">
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-500 block mb-0.5">H (%)</span>
+              <input type="number" id="propH" step="0.1" min="1" max="100" class="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-white">
+            </div>
+          </div>
+        </div>
+
+        <div id="inspectorEmpty" class="text-center py-6 text-slate-500 text-xs">
+          Düzenlemek için tuvalden bir öğe seçin veya yukarıdaki araçlarla yeni bir öğe ekleyin.
+        </div>
+
+      </div>
+
+      <!-- Layer Stack List -->
+      <div class="p-4 flex-1 overflow-y-auto">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Katmanlar Listesi</span>
+          <span id="badgeLayerCount" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">0</span>
+        </div>
+
+        <div id="layerList" class="space-y-1.5">
+          <!-- Dynamic layer items will be listed here -->
+        </div>
+      </div>
+
+      <!-- PPTX Export Options -->
+      <div class="p-4 bg-slate-950 border-t border-slate-800 space-y-3 shrink-0">
+        <div class="text-xs font-semibold text-white flex items-center justify-between">
+          <span class="flex items-center gap-1.5">
+            <span class="text-orange-500 font-bold">P</span>
+            PowerPoint (.pptx) Ayarları
+          </span>
+          <span class="text-[11px] font-mono text-slate-400">9.0" Sabit Genişlik</span>
+        </div>
+
+        <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
+          <span>Türkçe Kılavuz Slaytı Ekle:</span>
+          <input type="checkbox" id="chkIncludeGuideSlide" checked class="rounded border-slate-700 text-blue-500 focus:ring-0">
+        </label>
+
+        <button id="btnDownloadPptxBottom" class="w-full py-2.5 px-4 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-orange-950/40 transition-all flex items-center justify-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+          Microsoft PowerPoint (.pptx) Olarak İndir
+        </button>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Eye Dropper Modal / Indicator -->
+  <div id="eyeDropperNotice" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs px-4 py-2 rounded-xl shadow-2xl z-50 flex items-center gap-2 pointer-events-none">
+    <svg class="w-4 h-4 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+    <span>Renk almak için afiş üzerine tıklayın</span>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="fixed top-14 right-6 bg-slate-800 border border-slate-700 text-white text-xs px-4 py-2.5 rounded-xl shadow-xl z-50 transform translate-y-[-100px] opacity-0 transition-all duration-300 flex items-center gap-2">
+    <span id="toastIcon">ℹ️</span>
+    <span id="toastMsg">İşlem tamamlandı</span>
+  </div>
+
+  <!-- Core Application Logic -->
+  <script>
+    class StandalonePosterApp {
+      constructor() {
+        this.originalImage = null;
+        this.elements = [];
+        this.selectedId = null;
+        this.activeTool = 'select'; // 'select' | 'crop'
+        this.zoom = 1.0;
+
+        // Interaction state
+        this.isInteracting = false;
+        this.interactionType = null; // 'drag' | 'resize' | 'crop'
+        this.resizeHandle = null;
+        this.startPos = { x: 0, y: 0 };
+        this.initialElementState = null;
+        this.isEyeDropperActive = false;
+
+        this.initDOMElements();
+        this.bindEvents();
+      }
+
+      initDOMElements() {
+        this.emptyView = document.getElementById('emptyView');
+        this.mainWorkspace = document.getElementById('mainWorkspace');
+        this.dropZone = document.getElementById('dropZone');
+        this.fileInput = document.getElementById('fileInput');
+        this.btnLoadSample = document.getElementById('btnLoadSample');
+        this.btnDropzoneSample = document.getElementById('btnDropzoneSample');
+        this.btnExportPptx = document.getElementById('btnExportPptx');
+        this.btnDownloadPptxBottom = document.getElementById('btnDownloadPptxBottom');
+
+        this.posterImage = document.getElementById('posterImage');
+        this.elementsLayer = document.getElementById('elementsLayer');
+        this.canvasContainer = document.getElementById('canvasContainer');
+        this.marquee = document.getElementById('marquee');
+
+        // Tools
+        this.toolSelect = document.getElementById('toolSelect');
+        this.btnAddText = document.getElementById('btnAddText');
+        this.btnAddSolidMask = document.getElementById('btnAddSolidMask');
+        this.btnAddGradientMask = document.getElementById('btnAddGradientMask');
+        this.toolCrop = document.getElementById('toolCrop');
+        this.btnEyeDropper = document.getElementById('btnEyeDropper');
+        this.eyeDropperNotice = document.getElementById('eyeDropperNotice');
+
+        // Zoom
+        this.btnZoomIn = document.getElementById('btnZoomIn');
+        this.btnZoomOut = document.getElementById('btnZoomOut');
+        this.zoomLevelText = document.getElementById('zoomLevelText');
+
+        // Inspector
+        this.inspectorEmpty = document.getElementById('inspectorEmpty');
+        this.btnDeleteElement = document.getElementById('btnDeleteElement');
+        this.layerList = document.getElementById('layerList');
+        this.badgeLayerCount = document.getElementById('badgeLayerCount');
+        this.infoDimensions = document.getElementById('infoDimensions');
+
+        // Form Groups
+        this.formText = document.getElementById('formText');
+        this.formSolidMask = document.getElementById('formSolidMask');
+        this.formGradientMask = document.getElementById('formGradientMask');
+        this.formImageCrop = document.getElementById('formImageCrop');
+
+        // Position inputs
+        this.propX = document.getElementById('propX');
+        this.propY = document.getElementById('propY');
+        this.propW = document.getElementById('propW');
+        this.propH = document.getElementById('propH');
+
+        // Text props
+        this.propTextContent = document.getElementById('propTextContent');
+        this.propTextFontSize = document.getElementById('propTextFontSize');
+        this.propTextFontFamily = document.getElementById('propTextFontFamily');
+        this.propTextColorPicker = document.getElementById('propTextColorPicker');
+        this.propTextColorHex = document.getElementById('propTextColorHex');
+        this.btnAlignLeft = document.getElementById('btnAlignLeft');
+        this.btnAlignCenter = document.getElementById('btnAlignCenter');
+        this.btnAlignRight = document.getElementById('btnAlignRight');
+        this.btnBold = document.getElementById('btnBold');
+
+        // Solid mask props
+        this.propSolidColorPicker = document.getElementById('propSolidColorPicker');
+        this.propSolidColorHex = document.getElementById('propSolidColorHex');
+        this.propSolidOpacity = document.getElementById('propSolidOpacity');
+        this.propSolidOpacityVal = document.getElementById('propSolidOpacityVal');
+
+        // Gradient mask props
+        this.propGradStartPicker = document.getElementById('propGradStartPicker');
+        this.propGradStartHex = document.getElementById('propGradStartHex');
+        this.propGradEndPicker = document.getElementById('propGradEndPicker');
+        this.propGradEndHex = document.getElementById('propGradEndHex');
+        this.propGradAngle = document.getElementById('propGradAngle');
+        this.propGradOpacity = document.getElementById('propGradOpacity');
+        this.propGradOpacityVal = document.getElementById('propGradOpacityVal');
+
+        // Image crop props
+        this.propCropName = document.getElementById('propCropName');
+        this.propCropImgPreview = document.getElementById('propCropImgPreview');
+
+        // Export options
+        this.chkIncludeGuideSlide = document.getElementById('chkIncludeGuideSlide');
+        this.toast = document.getElementById('toast');
+        this.toastMsg = document.getElementById('toastMsg');
+        this.toastIcon = document.getElementById('toastIcon');
+      }
+
+      bindEvents() {
+        // Drag and drop image
+        this.dropZone.addEventListener('click', () => this.fileInput.click());
+        this.dropZone.addEventListener('dragover', (e) => { e.preventDefault(); this.dropZone.classList.add('border-blue-500', 'bg-slate-900/80'); });
+        this.dropZone.addEventListener('dragleave', () => { this.dropZone.classList.remove('border-blue-500', 'bg-slate-900/80'); });
+        this.dropZone.addEventListener('drop', (e) => {
+          e.preventDefault();
+          this.dropZone.classList.remove('border-blue-500', 'bg-slate-900/80');
+          if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            this.handleFile(e.dataTransfer.files[0]);
+          }
+        });
+
+        this.fileInput.addEventListener('change', (e) => {
+          if (e.target.files && e.target.files[0]) {
+            this.handleFile(e.target.files[0]);
+          }
+        });
+
+        const loadSample = () => this.loadImageFromUrl('sample-poster.jpg', true);
+        this.btnLoadSample.addEventListener('click', loadSample);
+        this.btnDropzoneSample.addEventListener('click', loadSample);
+
+        // Tool buttons
+        this.toolSelect.addEventListener('click', () => this.setTool('select'));
+        this.toolCrop.addEventListener('click', () => this.setTool('crop'));
+
+        this.btnAddText.addEventListener('click', () => {
+          this.addElement({
+            type: 'text',
+            name: 'Metin Kutusu',
+            x: 10, y: 20, w: 80, h: 8,
+            text: 'Yeni Düzenlenebilir Başlık',
+            fontSize: 22,
+            fontFamily: 'Calibri',
+            color: '#FFFFFF',
+            bold: true,
+            italic: false,
+            align: 'center'
+          });
+          this.showToast('Metin kutusu eklendi', '🔤');
+        });
+
+        this.btnAddSolidMask.addEventListener('click', () => {
+          this.addElement({
+            type: 'solidMask',
+            name: 'Düz Renk Maske',
+            x: 15, y: 15, w: 70, h: 10,
+            color: '#0D3859',
+            opacity: 100
+          });
+          this.showToast('Düz renk maske eklendi', '▭');
+        });
+
+        this.btnAddGradientMask.addEventListener('click', () => {
+          this.addElement({
+            type: 'gradientMask',
+            name: 'Gradyan Maske',
+            x: 10, y: 15, w: 80, h: 14,
+            startColor: '#0A2540',
+            endColor: '#0F4C81',
+            angle: 180,
+            opacity: 100
+          });
+          this.showToast('Gradyan maske eklendi', '🌈');
+        });
+
+        // Eye Dropper
+        this.btnEyeDropper.addEventListener('click', () => this.toggleEyeDropper());
+
+        // Zoom
+        this.btnZoomIn.addEventListener('click', () => this.setZoom(this.zoom + 0.15));
+        this.btnZoomOut.addEventListener('click', () => this.setZoom(this.zoom - 0.15));
+
+        // Delete
+        this.btnDeleteElement.addEventListener('click', () => {
+          if (this.selectedId) this.deleteElement(this.selectedId);
+        });
+
+        window.addEventListener('keydown', (e) => {
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+          if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) {
+            e.preventDefault();
+            this.deleteElement(this.selectedId);
+          } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && this.selectedId) {
+            e.preventDefault();
+            const step = e.shiftKey ? 1.0 : 0.2;
+            const el = this.getSelectedElement();
+            if (!el) return;
+            if (e.key === 'ArrowUp') el.y = Math.max(0, el.y - step);
+            if (e.key === 'ArrowDown') el.y = Math.min(100 - el.h, el.y + step);
+            if (e.key === 'ArrowLeft') el.x = Math.max(0, el.x - step);
+            if (e.key === 'ArrowRight') el.x = Math.min(100 - el.w, el.x + step);
+            this.updateElementDOM(el);
+            this.updateInspectorPosition(el);
+          }
+        });
+
+        // Inspector live updates
+        this.bindInspectorEvents();
+
+        // Canvas interactions
+        this.bindCanvasInteractions();
+
+        // PPTX Export
+        this.btnExportPptx.addEventListener('click', () => this.exportPptx());
+        this.btnDownloadPptxBottom.addEventListener('click', () => this.exportPptx());
+      }
+
+      setTool(tool) {
+        this.activeTool = tool;
+        if (tool === 'select') {
+          this.toolSelect.className = 'px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-600 text-white transition-all flex items-center gap-1.5 shadow-sm';
+          this.toolCrop.className = 'px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5';
+          this.canvasContainer.style.cursor = 'default';
+        } else if (tool === 'crop') {
+          this.toolCrop.className = 'px-2.5 py-1 text-xs font-medium rounded-lg bg-purple-600 text-white transition-all flex items-center gap-1.5 shadow-sm';
+          this.toolSelect.className = 'px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5';
+          this.canvasContainer.style.cursor = 'crosshair';
+          this.selectElement(null);
+          this.showToast('Kırpmak istediğiniz bölgeyi afiş üzerinde sürükleyin', '✂️');
+        }
+      }
+
+      setZoom(val) {
+        this.zoom = Math.max(0.4, Math.min(2.5, val));
+        this.canvasContainer.style.transform = `scale(${this.zoom})`;
+        this.zoomLevelText.textContent = `${Math.round(this.zoom * 100)}%`;
+      }
+
+      showToast(msg, icon = 'ℹ️') {
+        this.toastMsg.textContent = msg;
+        this.toastIcon.textContent = icon;
+        this.toast.classList.remove('translate-y-[-100px]', 'opacity-0');
+        this.toast.classList.add('translate-y-0', 'opacity-100');
+        clearTimeout(this.toastTimer);
+        this.toastTimer = setTimeout(() => {
+          this.toast.classList.add('translate-y-[-100px]', 'opacity-0');
+          this.toast.classList.remove('translate-y-0', 'opacity-100');
+        }, 2800);
+      }
+
+      handleFile(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => this.loadImageFromUrl(e.target.result, false);
+        reader.readAsDataURL(file);
+      }
+
+      loadImageFromUrl(url, isSample = false) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          this.originalImage = img;
+          this.posterImage.src = url;
+
+          // Compute max viewport height
+          const maxH = window.innerHeight * 0.76;
+          const scale = maxH / img.height;
+          const displayW = img.width * scale;
+          const displayH = maxH;
+
+          this.posterImage.style.width = `${displayW}px`;
+          this.posterImage.style.height = `${displayH}px`;
+          this.canvasContainer.style.width = `${displayW}px`;
+          this.canvasContainer.style.height = `${displayH}px`;
+
+          this.infoDimensions.textContent = `Afiş Boyutu: ${img.width} × ${img.height} px`;
+          this.btnExportPptx.disabled = false;
+          this.emptyView.classList.add('hidden');
+          this.mainWorkspace.classList.remove('hidden');
+
+          this.elements = [];
+          this.selectedId = null;
+
+          if (isSample) {
+            this.setupCOP31SampleLayers();
+          } else {
+            this.renderElements();
+            this.renderLayerList();
+            this.showToast('Afiş başarıyla yüklendi! Maske veya metin ekleyebilirsiniz.', '✅');
+          }
+        };
+        img.onerror = () => {
+          alert('Görsel yüklenemedi. Lütfen geçerli bir JPG veya PNG dosyası seçin.');
+        };
+        img.src = url;
+      }
+
+      /**
+       * Pre-configures calibrated mask and text layers for the COP31 Poster demo
+       */
+      setupCOP31SampleLayers() {
+        this.elements = [
+          // 1. Solid mask over the main title area
+          {
+            id: 'el_' + Date.now() + '_1',
+            type: 'solidMask',
+            name: 'Başlık Maskesi',
+            x: 4.5, y: 17.0, w: 91.0, h: 18.5,
+            color: '#083344',
+            opacity: 100
+          },
+          // 2. Editable Title Text
+          {
+            id: 'el_' + Date.now() + '_2',
+            type: 'text',
+            name: 'Ana Başlık',
+            x: 5.0, y: 17.5, w: 90.0, h: 17.5,
+            text: "Türkiye'nin Ulusal Su Planı Kapsamında\nSu-Gıda-Enerji-Ekosistem Bağlantısı:\nİklim Değişikliğine Dayanıklı Gıda Sistemleri\nİçin Entegre Politikalar ve Ortaklıklar",
+            fontSize: 23,
+            fontFamily: 'Segoe UI',
+            color: '#FFFFFF',
+            bold: true,
+            italic: false,
+            align: 'center'
+          },
+          // 3. Cropped Logo: Tarım ve Orman Bakanlığı
+          {
+            id: 'el_' + Date.now() + '_3',
+            type: 'crop',
+            name: 'Tarım ve Orman Bak. Logosu',
+            x: 4.0, y: 88.0, w: 30.0, h: 10.0,
+            dataUrl: this.cropRegion(4.0, 88.0, 30.0, 10.0)
+          },
+          // 4. Cropped Logo: COP31 Antalya
+          {
+            id: 'el_' + Date.now() + '_4',
+            type: 'crop',
+            name: 'COP31 Türkiye Logosu',
+            x: 37.0, y: 88.0, w: 22.0, h: 10.0,
+            dataUrl: this.cropRegion(37.0, 88.0, 22.0, 10.0)
+          },
+          // 5. Cropped Logo: Union for the Mediterranean
+          {
+            id: 'el_' + Date.now() + '_5',
+            type: 'crop',
+            name: 'UfM Akdeniz Logosu',
+            x: 62.0, y: 88.5, w: 34.0, h: 9.5,
+            dataUrl: this.cropRegion(62.0, 88.5, 34.0, 9.5)
+          }
+        ];
+
+        this.renderElements();
+        this.renderLayerList();
+        this.selectElement(this.elements[1].id);
+        this.showToast('COP31 örnek katmanları (Maske, Metin ve 3 Ayrık Logo) yüklendi!', '🚀');
+      }
+
+      cropRegion(normX, normY, normW, normH) {
+        if (!this.originalImage) return '';
+        const canvas = document.createElement('canvas');
+        const imgW = this.originalImage.width;
+        const imgH = this.originalImage.height;
+
+        const x = Math.max(0, (normX / 100) * imgW);
+        const y = Math.max(0, (normY / 100) * imgH);
+        const w = Math.min(imgW - x, (normW / 100) * imgW);
+        const h = Math.min(imgH - y, (normH / 100) * imgH);
+
+        canvas.width = Math.max(1, Math.round(w));
+        canvas.height = Math.max(1, Math.round(h));
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(this.originalImage, x, y, w, h, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/png');
+      }
+
+      addElement(props) {
+        const id = 'el_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        const element = { id, ...props };
+        this.elements.push(element);
+        this.renderElements();
+        this.renderLayerList();
+        this.selectElement(id);
+      }
+
+      deleteElement(id) {
+        this.elements = this.elements.filter(e => e.id !== id);
+        if (this.selectedId === id) {
+          this.selectedId = this.elements.length > 0 ? this.elements[this.elements.length - 1].id : null;
+        }
+        this.renderElements();
+        this.renderLayerList();
+        this.updateInspector();
+      }
+
+      selectElement(id) {
+        this.selectedId = id;
+        document.querySelectorAll('.canvas-element').forEach(el => {
+          el.classList.toggle('selected', el.dataset.id === id);
+        });
+        this.renderHandles();
+        this.renderLayerList();
+        this.updateInspector();
+      }
+
+      getSelectedElement() {
+        return this.elements.find(e => e.id === this.selectedId);
+      }
+
+      renderElements() {
+        this.elementsLayer.innerHTML = '';
+        this.elements.forEach(item => {
+          const div = document.createElement('div');
+          div.className = `canvas-element ${item.id === this.selectedId ? 'selected' : ''}`;
+          div.dataset.id = item.id;
+          this.applyElementStyles(div, item);
+
+          // Element label badge
+          const badge = document.createElement('div');
+          badge.className = 'element-badge';
+          let icon = '🔤';
+          let bgClass = 'bg-blue-600 text-white';
+
+          if (item.type === 'solidMask') {
+            icon = '▭';
+            bgClass = 'bg-amber-600 text-white';
+          } else if (item.type === 'gradientMask') {
+            icon = '🌈';
+            bgClass = 'bg-orange-600 text-white';
+          } else if (item.type === 'crop') {
+            icon = '✂️';
+            bgClass = 'bg-purple-600 text-white';
+          }
+          badge.className = `element-badge ${bgClass}`;
+          badge.innerHTML = `<span>${icon}</span> <span>${item.name || item.type}</span>`;
+          div.appendChild(badge);
+
+          // Element internal content
+          if (item.type === 'text') {
+            const inner = document.createElement('div');
+            inner.className = 'w-full h-full p-1 leading-snug whitespace-pre-wrap overflow-hidden select-none';
+            inner.style.fontSize = `${item.fontSize * 0.72}px`;
+            inner.style.fontFamily = item.fontFamily || 'Calibri';
+            inner.style.color = item.color || '#FFFFFF';
+            inner.style.fontWeight = item.bold ? 'bold' : 'normal';
+            inner.style.fontStyle = item.italic ? 'italic' : 'normal';
+            inner.style.textAlign = item.align || 'left';
+            inner.textContent = item.text || '';
+            div.appendChild(inner);
+          } else if (item.type === 'crop') {
+            const img = document.createElement('img');
+            img.src = item.dataUrl;
+            img.className = 'w-full h-full object-contain pointer-events-none';
+            div.appendChild(img);
+          }
+
+          this.elementsLayer.appendChild(div);
+        });
+
+        this.renderHandles();
+      }
+
+      applyElementStyles(div, item) {
+        div.style.left = `${item.x}%`;
+        div.style.top = `${item.y}%`;
+        div.style.width = `${item.w}%`;
+        div.style.height = `${item.h}%`;
+
+        if (item.type === 'solidMask') {
+          const alpha = (item.opacity || 100) / 100;
+          div.style.backgroundColor = this.hexToRgba(item.color || '#000000', alpha);
+          div.style.background = '';
+        } else if (item.type === 'gradientMask') {
+          const alpha = (item.opacity || 100) / 100;
+          const c1 = this.hexToRgba(item.startColor || '#000000', alpha);
+          const c2 = this.hexToRgba(item.endColor || '#FFFFFF', alpha);
+          div.style.background = `linear-gradient(${item.angle || 180}deg, ${c1}, ${c2})`;
+        } else {
+          div.style.backgroundColor = 'transparent';
+          div.style.background = '';
+        }
+      }
+
+      hexToRgba(hex, alpha = 1) {
+        hex = hex.replace('#', '');
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        const num = parseInt(hex, 16);
+        return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+      }
+
+      renderHandles() {
+        document.querySelectorAll('.handle').forEach(h => h.remove());
+        const selectedEl = this.elementsLayer.querySelector(`.canvas-element[data-id="${this.selectedId}"]`);
+        if (!selectedEl) return;
+
+        ['nw', 'ne', 'se', 'sw', 'n', 's', 'w', 'e'].forEach(pos => {
+          const handle = document.createElement('div');
+          handle.className = `handle ${pos}`;
+          handle.dataset.handle = pos;
+          selectedEl.appendChild(handle);
+        });
+      }
+
+      updateElementDOM(item) {
+        const div = this.elementsLayer.querySelector(`.canvas-element[data-id="${item.id}"]`);
+        if (!div) return;
+        this.applyElementStyles(div, item);
+
+        if (item.type === 'text') {
+          const inner = div.querySelector('div:not(.element-badge)');
+          if (inner) {
+            inner.textContent = item.text || '';
+            inner.style.fontSize = `${item.fontSize * 0.72}px`;
+            inner.style.fontFamily = item.fontFamily || 'Calibri';
+            inner.style.color = item.color || '#FFFFFF';
+            inner.style.fontWeight = item.bold ? 'bold' : 'normal';
+            inner.style.fontStyle = item.italic ? 'italic' : 'normal';
+            inner.style.textAlign = item.align || 'left';
+          }
+        }
+      }
+
+      renderLayerList() {
+        this.layerList.innerHTML = '';
+        this.badgeLayerCount.textContent = this.elements.length;
+
+        this.elements.forEach(item => {
+          const div = document.createElement('div');
+          const isSel = item.id === this.selectedId;
+          div.className = `p-2 rounded-xl border text-xs cursor-pointer flex items-center justify-between transition-all ${
+            isSel ? 'bg-blue-600/20 border-blue-500/50 text-white' : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800/60'
+          }`;
+
+          let icon = '🔤';
+          if (item.type === 'solidMask') icon = '▭';
+          if (item.type === 'gradientMask') icon = '🌈';
+          if (item.type === 'crop') icon = '✂️';
+
+          let desc = item.name;
+          if (item.type === 'text') desc = item.text.substring(0, 24) || 'Metin';
+
+          div.innerHTML = `
+            <div class="flex items-center gap-2 overflow-hidden mr-2">
+              <span>${icon}</span>
+              <span class="truncate font-medium">${desc}</span>
+            </div>
+            <button data-action="delete" data-id="${item.id}" class="text-slate-500 hover:text-red-400 p-1 rounded transition-all">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+          `;
+
+          div.addEventListener('click', (e) => {
+            if (e.target.closest('[data-action="delete"]')) {
+              e.stopPropagation();
+              this.deleteElement(item.id);
+              return;
+            }
+            this.selectElement(item.id);
+          });
+
+          this.layerList.appendChild(div);
+        });
+      }
+
+      updateInspector() {
+        const item = this.getSelectedElement();
+        if (!item) {
+          this.inspectorEmpty.classList.remove('hidden');
+          [this.formText, this.formSolidMask, this.formGradientMask, this.formImageCrop].forEach(f => f.classList.add('hidden'));
+          this.propX.value = '';
+          this.propY.value = '';
+          this.propW.value = '';
+          this.propH.value = '';
+          return;
+        }
+
+        this.inspectorEmpty.classList.add('hidden');
+        [this.formText, this.formSolidMask, this.formGradientMask, this.formImageCrop].forEach(f => f.classList.add('hidden'));
+
+        this.updateInspectorPosition(item);
+
+        if (item.type === 'text') {
+          this.formText.classList.remove('hidden');
+          this.propTextContent.value = item.text || '';
+          this.propTextFontSize.value = item.fontSize || 20;
+          this.propTextFontFamily.value = item.fontFamily || 'Calibri';
+          this.propTextColorPicker.value = item.color || '#FFFFFF';
+          this.propTextColorHex.value = (item.color || '#FFFFFF').toUpperCase();
+          this.btnBold.className = `px-2 py-1 text-xs font-bold rounded ${item.bold ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-white'}`;
+        } else if (item.type === 'solidMask') {
+          this.formSolidMask.classList.remove('hidden');
+          this.propSolidColorPicker.value = item.color || '#000000';
+          this.propSolidColorHex.value = (item.color || '#000000').toUpperCase();
+          this.propSolidOpacity.value = item.opacity || 100;
+          this.propSolidOpacityVal.textContent = `${item.opacity || 100}%`;
+        } else if (item.type === 'gradientMask') {
+          this.formGradientMask.classList.remove('hidden');
+          this.propGradStartPicker.value = item.startColor || '#000000';
+          this.propGradStartHex.value = (item.startColor || '#000000').toUpperCase();
+          this.propGradEndPicker.value = item.endColor || '#FFFFFF';
+          this.propGradEndHex.value = (item.endColor || '#FFFFFF').toUpperCase();
+          this.propGradAngle.value = item.angle || 180;
+          this.propGradOpacity.value = item.opacity || 100;
+          this.propGradOpacityVal.textContent = `${item.opacity || 100}%`;
+        } else if (item.type === 'crop') {
+          this.formImageCrop.classList.remove('hidden');
+          this.propCropName.value = item.name || 'Kırpılmış Logo';
+          this.propCropImgPreview.src = item.dataUrl;
+        }
+      }
+
+      updateInspectorPosition(item) {
+        this.propX.value = item.x.toFixed(1);
+        this.propY.value = item.y.toFixed(1);
+        this.propW.value = item.w.toFixed(1);
+        this.propH.value = item.h.toFixed(1);
+      }
+
+      bindInspectorEvents() {
+        // Position inputs
+        const handlePos = () => {
+          const item = this.getSelectedElement();
+          if (!item) return;
+          item.x = parseFloat(this.propX.value) || 0;
+          item.y = parseFloat(this.propY.value) || 0;
+          item.w = parseFloat(this.propW.value) || 1;
+          item.h = parseFloat(this.propH.value) || 1;
+          this.updateElementDOM(item);
+          if (item.type === 'crop') {
+            item.dataUrl = this.cropRegion(item.x, item.y, item.w, item.h);
+            this.propCropImgPreview.src = item.dataUrl;
+            this.renderElements();
+          }
+        };
+        [this.propX, this.propY, this.propW, this.propH].forEach(input => input.addEventListener('input', handlePos));
+
+        // Text events
+        this.propTextContent.addEventListener('input', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'text') {
+            item.text = e.target.value;
+            this.updateElementDOM(item);
+            this.renderLayerList();
+          }
+        });
+
+        this.propTextFontSize.addEventListener('change', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'text') {
+            item.fontSize = parseInt(e.target.value, 10) || 12;
+            this.updateElementDOM(item);
+          }
+        });
+
+        this.propTextFontFamily.addEventListener('change', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'text') {
+            item.fontFamily = e.target.value;
+            this.updateElementDOM(item);
+          }
+        });
+
+        this.propTextColorPicker.addEventListener('input', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'text') {
+            item.color = e.target.value;
+            this.propTextColorHex.value = item.color.toUpperCase();
+            this.updateElementDOM(item);
+          }
+        });
+
+        this.propTextColorHex.addEventListener('change', (e) => {
+          const item = this.getSelectedElement();
+          let hex = e.target.value.trim();
+          if (!hex.startsWith('#')) hex = '#' + hex;
+          if (/^#[0-9A-Fa-f]{6}$/.test(hex) && item && item.type === 'text') {
+            item.color = hex;
+            this.propTextColorPicker.value = hex;
+            this.updateElementDOM(item);
+          }
+        });
+
+        this.btnAlignLeft.addEventListener('click', () => { const el = this.getSelectedElement(); if (el) { el.align = 'left'; this.updateElementDOM(el); } });
+        this.btnAlignCenter.addEventListener('click', () => { const el = this.getSelectedElement(); if (el) { el.align = 'center'; this.updateElementDOM(el); } });
+        this.btnAlignRight.addEventListener('click', () => { const el = this.getSelectedElement(); if (el) { el.align = 'right'; this.updateElementDOM(el); } });
+        this.btnBold.addEventListener('click', () => {
+          const el = this.getSelectedElement();
+          if (el && el.type === 'text') {
+            el.bold = !el.bold;
+            this.btnBold.className = `px-2 py-1 text-xs font-bold rounded ${el.bold ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-white'}`;
+            this.updateElementDOM(el);
+          }
+        });
+
+        // Solid mask events
+        this.propSolidColorPicker.addEventListener('input', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'solidMask') {
+            item.color = e.target.value;
+            this.propSolidColorHex.value = item.color.toUpperCase();
+            this.updateElementDOM(item);
+          }
+        });
+        this.propSolidOpacity.addEventListener('input', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'solidMask') {
+            item.opacity = parseInt(e.target.value, 10);
+            this.propSolidOpacityVal.textContent = `${item.opacity}%`;
+            this.updateElementDOM(item);
+          }
+        });
+
+        // Gradient mask events
+        this.propGradStartPicker.addEventListener('input', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'gradientMask') {
+            item.startColor = e.target.value;
+            this.propGradStartHex.value = item.startColor.toUpperCase();
+            this.updateElementDOM(item);
+          }
+        });
+        this.propGradEndPicker.addEventListener('input', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'gradientMask') {
+            item.endColor = e.target.value;
+            this.propGradEndHex.value = item.endColor.toUpperCase();
+            this.updateElementDOM(item);
+          }
+        });
+        this.propGradAngle.addEventListener('change', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'gradientMask') {
+            item.angle = parseInt(e.target.value, 10);
+            this.updateElementDOM(item);
+          }
+        });
+        this.propGradOpacity.addEventListener('input', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'gradientMask') {
+            item.opacity = parseInt(e.target.value, 10);
+            this.propGradOpacityVal.textContent = `${item.opacity}%`;
+            this.updateElementDOM(item);
+          }
+        });
+
+        // Image crop events
+        this.propCropName.addEventListener('input', (e) => {
+          const item = this.getSelectedElement();
+          if (item && item.type === 'crop') {
+            item.name = e.target.value;
+            this.renderLayerList();
+          }
+        });
+      }
+
+      bindCanvasInteractions() {
+        this.elementsLayer.addEventListener('mousedown', (e) => {
+          if (this.isEyeDropperActive) {
+            this.sampleColorAtEvent(e);
+            return;
+          }
+
+          if (this.activeTool === 'crop') {
+            this.startCropping(e);
+            return;
+          }
+
+          const handle = e.target.closest('.handle');
+          const element = e.target.closest('.canvas-element');
+
+          if (handle) {
+            this.isInteracting = true;
+            this.interactionType = 'resize';
+            this.resizeHandle = handle.dataset.handle;
+            this.startPos = { x: e.clientX, y: e.clientY };
+            const el = this.getSelectedElement();
+            this.initialElementState = { ...el };
+            e.stopPropagation();
+            return;
+          }
+
+          if (element) {
+            const id = element.dataset.id;
+            this.selectElement(id);
+            this.isInteracting = true;
+            this.interactionType = 'drag';
+            this.startPos = { x: e.clientX, y: e.clientY };
+            const el = this.getSelectedElement();
+            this.initialElementState = { ...el };
+            e.stopPropagation();
+          } else {
+            this.selectElement(null);
+          }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+          if (!this.isInteracting) return;
+
+          const rect = this.canvasContainer.getBoundingClientRect();
+
+          if (this.interactionType === 'drag') {
+            const el = this.getSelectedElement();
+            if (!el) return;
+            const deltaX = ((e.clientX - this.startPos.x) / rect.width) * 100;
+            const deltaY = ((e.clientY - this.startPos.y) / rect.height) * 100;
+
+            el.x = Math.max(0, Math.min(100 - el.w, this.initialElementState.x + deltaX));
+            el.y = Math.max(0, Math.min(100 - el.h, this.initialElementState.y + deltaY));
+            this.updateElementDOM(el);
+            this.updateInspectorPosition(el);
+
+          } else if (this.interactionType === 'resize') {
+            const el = this.getSelectedElement();
+            if (!el) return;
+            const deltaX = ((e.clientX - this.startPos.x) / rect.width) * 100;
+            const deltaY = ((e.clientY - this.startPos.y) / rect.height) * 100;
+            const h = this.resizeHandle;
+
+            if (h.includes('e')) {
+              el.w = Math.max(2, Math.min(100 - el.x, this.initialElementState.w + deltaX));
+            }
+            if (h.includes('s')) {
+              el.h = Math.max(1.5, Math.min(100 - el.y, this.initialElementState.h + deltaY));
+            }
+            if (h.includes('w')) {
+              const newW = this.initialElementState.w - deltaX;
+              if (newW >= 2 && (this.initialElementState.x + deltaX) >= 0) {
+                el.x = this.initialElementState.x + deltaX;
+                el.w = newW;
+              }
+            }
+            if (h.includes('n')) {
+              const newH = this.initialElementState.h - deltaY;
+              if (newH >= 1.5 && (this.initialElementState.y + deltaY) >= 0) {
+                el.y = this.initialElementState.y + deltaY;
+                el.h = newH;
+              }
+            }
+
+            this.updateElementDOM(el);
+            this.updateInspectorPosition(el);
+
+          } else if (this.interactionType === 'crop') {
+            const currentX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+            const currentY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+
+            const x = Math.min(this.cropStartPx.x, currentX);
+            const y = Math.min(this.cropStartPx.y, currentY);
+            const w = Math.abs(currentX - this.cropStartPx.x);
+            const h = Math.abs(currentY - this.cropStartPx.y);
+
+            this.marquee.style.left = `${x}px`;
+            this.marquee.style.top = `${y}px`;
+            this.marquee.style.width = `${w}px`;
+            this.marquee.style.height = `${h}px`;
+          }
+        });
+
+        window.addEventListener('mouseup', (e) => {
+          if (!this.isInteracting) return;
+
+          if (this.interactionType === 'resize' || this.interactionType === 'drag') {
+            const el = this.getSelectedElement();
+            if (el && el.type === 'crop') {
+              el.dataUrl = this.cropRegion(el.x, el.y, el.w, el.h);
+              this.updateElementDOM(el);
+              this.updateInspector();
+            }
+          } else if (this.interactionType === 'crop') {
+            this.marquee.classList.add('hidden');
+            const rect = this.canvasContainer.getBoundingClientRect();
+            const currentX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+            const currentY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+
+            const xPx = Math.min(this.cropStartPx.x, currentX);
+            const yPx = Math.min(this.cropStartPx.y, currentY);
+            const wPx = Math.abs(currentX - this.cropStartPx.x);
+            const hPx = Math.abs(currentY - this.cropStartPx.y);
+
+            const normX = (xPx / rect.width) * 100;
+            const normY = (yPx / rect.height) * 100;
+            const normW = (wPx / rect.width) * 100;
+            const normH = (hPx / rect.height) * 100;
+
+            if (normW > 2 && normH > 2) {
+              const dataUrl = this.cropRegion(normX, normY, normW, normH);
+              this.addElement({
+                type: 'crop',
+                name: `Kırpılmış Logo ${this.elements.filter(el => el.type === 'crop').length + 1}`,
+                x: parseFloat(normX.toFixed(2)),
+                y: parseFloat(normY.toFixed(2)),
+                w: parseFloat(normW.toFixed(2)),
+                h: parseFloat(normH.toFixed(2)),
+                dataUrl: dataUrl
+              });
+              this.showToast('Görsel başarıyla kırpıldı ve katman olarak eklendi!', '✂️');
+            }
+            this.setTool('select');
+          }
+
+          this.isInteracting = false;
+          this.interactionType = null;
+        });
+      }
+
+      startCropping(e) {
+        const rect = this.canvasContainer.getBoundingClientRect();
+        this.cropStartPx = {
+          x: Math.max(0, Math.min(rect.width, e.clientX - rect.left)),
+          y: Math.max(0, Math.min(rect.height, e.clientY - rect.top))
+        };
+        this.marquee.style.left = `${this.cropStartPx.x}px`;
+        this.marquee.style.top = `${this.cropStartPx.y}px`;
+        this.marquee.style.width = '0px';
+        this.marquee.style.height = '0px';
+        this.marquee.classList.remove('hidden');
+
+        this.isInteracting = true;
+        this.interactionType = 'crop';
+      }
+
+      toggleEyeDropper() {
+        this.isEyeDropperActive = !this.isEyeDropperActive;
+        this.btnEyeDropper.classList.toggle('bg-cyan-600', this.isEyeDropperActive);
+        this.btnEyeDropper.classList.toggle('text-white', this.isEyeDropperActive);
+        this.eyeDropperNotice.classList.toggle('hidden', !this.isEyeDropperActive);
+        this.canvasContainer.style.cursor = this.isEyeDropperActive ? 'crosshair' : 'default';
+      }
+
+      sampleColorAtEvent(e) {
+        if (!this.originalImage) return;
+        const rect = this.canvasContainer.getBoundingClientRect();
+        const normX = (e.clientX - rect.left) / rect.width;
+        const normY = (e.clientY - rect.top) / rect.height;
+
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = this.originalImage.width;
+        offCanvas.height = this.originalImage.height;
+        const ctx = offCanvas.getContext('2d');
+        ctx.drawImage(this.originalImage, 0, 0);
+
+        const pxX = Math.floor(normX * offCanvas.width);
+        const pxY = Math.floor(normY * offCanvas.height);
+        const pixel = ctx.getImageData(pxX, pxY, 1, 1).data;
+        const hex = '#' + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1).toUpperCase();
+
+        const selected = this.getSelectedElement();
+        if (selected) {
+          if (selected.type === 'text') {
+            selected.color = hex;
+          } else if (selected.type === 'solidMask') {
+            selected.color = hex;
+          } else if (selected.type === 'gradientMask') {
+            selected.startColor = hex;
+          }
+          this.updateElementDOM(selected);
+          this.updateInspector();
+          this.showToast(`Renk kopyalandı ve uygulandı: ${hex}`, '🎨');
+        } else {
+          navigator.clipboard.writeText(hex);
+          this.showToast(`Renk panoya kopyalandı: ${hex}`, '📋');
+        }
+
+        this.toggleEyeDropper();
+      }
+
+      /**
+       * Generate genuine Microsoft PowerPoint Presentation (.pptx)
+       * Client-side via PptxGenJS
+       */
+      async exportPptx() {
+        if (!this.originalImage) return;
+
+        this.showToast('PowerPoint slaytı üretiliyor...', '⏳');
+
+        try {
+          const pptx = new PptxGenJS();
+
+          // Standard fixed width 9.0 inches, preserving exact aspect ratio
+          const slideW = 9.0;
+          const slideH = slideW * (this.originalImage.height / this.originalImage.width);
+
+          pptx.defineLayout({ name: 'CUSTOM_POSTER', width: slideW, height: slideH });
+          pptx.layout = 'CUSTOM_POSTER';
+
+          const slide = pptx.addSlide();
+
+          // 1. Add Original Poster Image as Slide Background
+          slide.addImage({
+            data: this.posterImage.src,
+            x: 0,
+            y: 0,
+            w: slideW,
+            h: slideH
+          });
+
+          // Sort elements in DOM order: Masks first, then Crops, then Texts
+          const sortedElements = [...this.elements].sort((a, b) => {
+            const order = { solidMask: 1, gradientMask: 2, crop: 3, text: 4 };
+            return (order[a.type] || 0) - (order[b.type] || 0);
+          });
+
+          for (const item of sortedElements) {
+            const elX = (item.x / 100) * slideW;
+            const elY = (item.y / 100) * slideH;
+            const elW = (item.w / 100) * slideW;
+            const elH = (item.h / 100) * slideH;
+
+            // [A] Solid Color Mask: Real editable PowerPoint Shape!
+            if (item.type === 'solidMask') {
+              const cleanColor = (item.color || '#000000').replace('#', '');
+              const transparency = Math.round((1 - (item.opacity || 100) / 100) * 100);
+
+              slide.addShape(pptx.shapes.RECTANGLE, {
+                x: elX,
+                y: elY,
+                w: elW,
+                h: elH,
+                fill: { color: cleanColor, transparency: transparency },
+                line: { color: cleanColor, width: 0 }
+              });
+
+            // [B] Gradient Mask: Rendered to high-res PNG and placed as Image
+            } else if (item.type === 'gradientMask') {
+              const gCanvas = document.createElement('canvas');
+              gCanvas.width = 400;
+              gCanvas.height = 300;
+              const gCtx = gCanvas.getContext('2d');
+
+              const rad = ((item.angle || 180) - 90) * (Math.PI / 180);
+              const cx = gCanvas.width / 2;
+              const cy = gCanvas.height / 2;
+              const length = Math.sqrt(gCanvas.width ** 2 + gCanvas.height ** 2) / 2;
+              const x1 = cx - Math.cos(rad) * length;
+              const y1 = cy - Math.sin(rad) * length;
+              const x2 = cx + Math.cos(rad) * length;
+              const y2 = cy + Math.sin(rad) * length;
+
+              const gradient = gCtx.createLinearGradient(x1, y1, x2, y2);
+              const alpha = (item.opacity || 100) / 100;
+              gradient.addColorStop(0, this.hexToRgba(item.startColor || '#000000', alpha));
+              gradient.addColorStop(1, this.hexToRgba(item.endColor || '#FFFFFF', alpha));
+
+              gCtx.fillStyle = gradient;
+              gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
+
+              slide.addImage({
+                data: gCanvas.toDataURL('image/png'),
+                x: elX,
+                y: elY,
+                w: elW,
+                h: elH
+              });
+
+            // [C] Cropped Logo / Icon: High-res discrete image object
+            } else if (item.type === 'crop') {
+              slide.addImage({
+                data: item.dataUrl,
+                x: elX,
+                y: elY,
+                w: elW,
+                h: elH
+              });
+
+            // [D] Editable Text Box: Real native Microsoft PowerPoint Text Box!
+            } else if (item.type === 'text') {
+              const cleanColor = (item.color || '#FFFFFF').replace('#', '');
+
+              slide.addText(item.text, {
+                x: elX,
+                y: elY,
+                w: elW,
+                h: elH,
+                fontSize: item.fontSize || 20,
+                color: cleanColor,
+                bold: !!item.bold,
+                italic: !!item.italic,
+                fontFace: item.fontFamily || 'Calibri',
+                align: item.align || 'left',
+                valign: 'top',
+                margin: 0,
+                wrap: true
+              });
+            }
+          }
+
+          // Optional 2nd Slide: Turkish User Guide
+          if (this.chkIncludeGuideSlide.checked) {
+            const guideSlide = pptx.addSlide();
+            guideSlide.background = { color: '0F172A' };
+
+            guideSlide.addText('Poster2PPTX — Slayt Kullanım ve Düzenleme Kılavuzu', {
+              x: 0.8, y: 0.8, w: 7.4, h: 0.8,
+              fontSize: 22, color: '38BDF8', bold: true, fontFace: 'Segoe UI'
+            });
+
+            const guideItems = [
+              { title: '1. Metinleri Düzenleme', desc: '1. slayttaki başlık veya açıklamaya çift tıklayarak PowerPoint içinde dilediğiniz gibi yeni metin yazabilir, yazı tipini ve boyutunu değiştirebilirsiniz.' },
+              { title: '2. Maskeleri Boyama', desc: 'Afişteki eski yazıların üzerini kapatan düz renkli maskeler gerçek PowerPoint Şekilleridir (Shape). Sağ tıklayıp "Şekil Biçimlendir" diyerek dolgu rengini değiştirebilir veya silebilirsiniz.' },
+              { title: '3. Logoları Taşıma ve Boyutlandırma', desc: 'Kırpılan logolar ve ikonlar bağımsız birer görseldir. Yerlerini sürükleyerek değiştirebilir, köşelerinden tutarak büyütebilir veya silebilirsiniz.' },
+              { title: '4. Yazdırma ve PDF Aktarımı', desc: 'Sunumunuzu tamamladıktan sonra PowerPoint üzerinden "Farklı Kaydet > PDF" diyerek yüksek çözünürlüklü dijital afiş veya baskı çıktısı alabilirsiniz.' }
+            ];
+
+            let curY = 1.8;
+            guideItems.forEach(g => {
+              guideSlide.addText(g.title, {
+                x: 0.8, y: curY, w: 7.4, h: 0.4,
+                fontSize: 14, color: 'F59E0B', bold: true, fontFace: 'Segoe UI'
+              });
+              curY += 0.35;
+              guideSlide.addText(g.desc, {
+                x: 0.8, y: curY, w: 7.4, h: 0.6,
+                fontSize: 11, color: 'E2E8F0', fontFace: 'Calibri', wrap: true
+              });
+              curY += 0.8;
+            });
+          }
+
+          const fileName = `Afis_Slayti_${Date.now()}.pptx`;
+          await pptx.writeFile({ fileName });
+          this.showToast('PowerPoint (.pptx) dosyası başarıyla indirildi!', '🎉');
+
+        } catch (err) {
+          console.error(err);
+          alert('PowerPoint dosyası oluşturulurken hata: ' + err.message);
+        }
+      }
+    }
+
+    // Launch on document ready
+    document.addEventListener('DOMContentLoaded', () => {
+      window.app = new StandalonePosterApp();
+    });
+  </script>
+</body>
+</html>
